@@ -3,14 +3,13 @@
 
 This script is intended to make friction effects visible early:
 - apply a sinusoidal torque on one joint
-- compare responses with/without friction
+- optionally compare responses with/without friction
 - export curves for q, qd, tau_cmd, tau_fric
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 from pathlib import Path
 import sys
 
@@ -37,6 +36,35 @@ def _plot(out_png: Path, t: np.ndarray, curves: dict[str, np.ndarray], title: st
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
 
+def _plot_compare(
+    out_png: Path,
+    t: np.ndarray,
+    curves_a: dict[str, np.ndarray],
+    curves_b: dict[str, np.ndarray],
+    label_a: str,
+    label_b: str,
+    title: str,
+) -> None:
+    import matplotlib.pyplot as plt
+
+    if curves_a.keys() != curves_b.keys():
+        raise ValueError("Compare plots require same curve keys.")
+
+    fig, axes = plt.subplots(len(curves_a), 1, figsize=(10, 2.8 * len(curves_a)), sharex=True)
+    if len(curves_a) == 1:
+        axes = [axes]
+    for ax, name in zip(axes, curves_a.keys(), strict=True):
+        ax.plot(t, curves_a[name], linewidth=1.4, label=label_a)
+        ax.plot(t, curves_b[name], linewidth=1.4, label=label_b)
+        ax.set_ylabel(name)
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc="best")
+    axes[-1].set_xlabel("t [s]")
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
+
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
@@ -50,6 +78,11 @@ def main() -> int:
     ap.add_argument("--freq", type=float, default=0.5, help="sinusoidal frequency [Hz]")
     ap.add_argument("--model", choices=["vc", "lugre"], default="lugre")
     ap.add_argument("--no-friction", action="store_true")
+    ap.add_argument(
+        "--compare",
+        action="store_true",
+        help="Run both with/without friction and export comparison plots.",
+    )
     ap.add_argument("--outdir", default="artifacts/friction_demo")
     args = ap.parse_args()
 
@@ -57,7 +90,6 @@ def main() -> int:
 
     mjcf_path = Path(args.mjcf)
     mjm = mujoco.MjModel.from_xml_path(str(mjcf_path))
-    mjd = mujoco.MjData(mjm)
 
     nq = int(mjm.nq)
     j = int(args.joint) - 1
@@ -68,20 +100,27 @@ def main() -> int:
     from phymodel.friction.viscous_coulomb import ViscousCoulombFriction
     from phymodel.sim.run import run_torque_demo
 
-    # Default params: placeholders for demonstration (must be calibrated later).
-    if args.model == "vc":
-        fric_model = ViscousCoulombFriction(
-            coulomb=[2.0] * nq,
-            viscous=[0.8] * nq,
-        )
+    def build_tau_fric_fn(model_name: str):
+        # Default params: placeholders for demonstration (must be calibrated later).
+        if model_name == "vc":
+            fric_model = ViscousCoulombFriction(
+                coulomb=[2.0] * nq,
+                viscous=[0.8] * nq,
+            )
 
-        def tau_fric_fn(_: float, __: np.ndarray, qd: np.ndarray, ___: float) -> np.ndarray:
-            tau = -fric_model.torque(qd)
-            tau[np.isnan(tau)] = 0.0
-            return tau
+            def tau_fric_fn(_: float, __: np.ndarray, qd: np.ndarray, ___: float) -> np.ndarray:
+                tau = -fric_model.torque(qd)
+                tau[np.isnan(tau)] = 0.0
+                return tau
 
-        fric_meta = {"type": "viscous_coulomb", **asdict(fric_model)}
-    else:
+            fric_meta = {
+                "type": "viscous_coulomb",
+                "coulomb": list(fric_model.coulomb),
+                "viscous": list(fric_model.viscous),
+                "v_eps": fric_model.v_eps,
+            }
+            return tau_fric_fn, fric_meta
+
         fric_model = LugreFriction(
             fc=[2.0] * nq,
             fs=[6.0] * nq,
@@ -106,28 +145,92 @@ def main() -> int:
             "sigma2": list(fric_model.sigma2),
             "v_eps": fric_model.v_eps,
         }
-
-    if args.no_friction:
-        tau_fric_fn_use = None
-        fric_meta = {"type": "none"}
-    else:
-        tau_fric_fn_use = tau_fric_fn
+        return tau_fric_fn, fric_meta
 
     def tau_cmd_fn(t: float, _q: np.ndarray, _qd: np.ndarray) -> np.ndarray:
         tau = np.zeros(nq, dtype=float)
         tau[j] = float(args.amp) * np.sin(2.0 * np.pi * float(args.freq) * t)
         return tau
 
+    outdir = Path(args.outdir)
+    _mkdir(outdir)
+
+    if args.compare:
+        tau_fric_fn, fric_meta = build_tau_fric_fn(args.model)
+
+        log_fric = run_torque_demo(
+            mjm=mjm,
+            mjd=mujoco.MjData(mjm),
+            duration=float(args.duration),
+            tau_cmd_fn=tau_cmd_fn,
+            tau_fric_fn=tau_fric_fn,
+        )
+        log_nofric = run_torque_demo(
+            mjm=mjm,
+            mjd=mujoco.MjData(mjm),
+            duration=float(args.duration),
+            tau_cmd_fn=tau_cmd_fn,
+            tau_fric_fn=None,
+        )
+
+        out_npz = outdir / f"compare_{args.model}_joint{args.joint}.npz"
+        np.savez(
+            out_npz,
+            fric=log_fric.to_npz_dict(),
+            nofric=log_nofric.to_npz_dict(),
+            meta=np.array([str(fric_meta)], dtype=object),
+        )
+
+        t = log_fric.t
+        _plot_compare(
+            out_png=outdir / f"joint{args.joint}_q_compare.png",
+            t=t,
+            curves_a={f"q[{args.joint}] [rad]": log_fric.q[:, j]},
+            curves_b={f"q[{args.joint}] [rad]": log_nofric.q[:, j]},
+            label_a="friction",
+            label_b="no friction",
+            title="Joint position (compare)",
+        )
+        _plot_compare(
+            out_png=outdir / f"joint{args.joint}_qd_compare.png",
+            t=t,
+            curves_a={f"qd[{args.joint}] [rad/s]": log_fric.qd[:, j]},
+            curves_b={f"qd[{args.joint}] [rad/s]": log_nofric.qd[:, j]},
+            label_a="friction",
+            label_b="no friction",
+            title="Joint velocity (compare)",
+        )
+        _plot(
+            out_png=outdir / f"joint{args.joint}_tau_compare.png",
+            t=t,
+            curves={
+                "tau_cmd [N*m]": log_fric.tau_cmd[:, j],
+                "tau_applied (fric) [N*m]": (log_fric.tau_cmd[:, j] + log_fric.tau_fric[:, j]),
+                "tau_applied (no fric) [N*m]": (log_nofric.tau_cmd[:, j] + log_nofric.tau_fric[:, j]),
+                "tau_fric [N*m]": log_fric.tau_fric[:, j],
+            },
+            title="Torques (compare)",
+        )
+
+        print(f"wrote: {out_npz}")
+        print(f"wrote: {outdir / f'joint{args.joint}_q_compare.png'}")
+        print(f"wrote: {outdir / f'joint{args.joint}_qd_compare.png'}")
+        print(f"wrote: {outdir / f'joint{args.joint}_tau_compare.png'}")
+        return 0
+
+    if args.no_friction:
+        tau_fric_fn_use = None
+        fric_meta = {"type": "none"}
+    else:
+        tau_fric_fn_use, fric_meta = build_tau_fric_fn(args.model)
+
     log = run_torque_demo(
         mjm=mjm,
-        mjd=mjd,
+        mjd=mujoco.MjData(mjm),
         duration=float(args.duration),
         tau_cmd_fn=tau_cmd_fn,
         tau_fric_fn=tau_fric_fn_use,
     )
-
-    outdir = Path(args.outdir)
-    _mkdir(outdir)
 
     out_npz = outdir / f"demo_{args.model}_{'nofric' if args.no_friction else 'fric'}.npz"
     np.savez(out_npz, **log.to_npz_dict(), meta=np.array([str(fric_meta)], dtype=object))
@@ -165,4 +268,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

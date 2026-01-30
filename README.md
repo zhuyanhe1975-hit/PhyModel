@@ -22,8 +22,7 @@ python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 无 GUI（导出曲线与数据到 `artifacts/`）：
 
 ```bash
-python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre
-python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre --no-friction
+python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre --compare
 ```
 
 有 GUI（MuJoCo viewer，适合直观看差异）：
