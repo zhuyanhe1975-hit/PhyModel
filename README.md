@@ -79,9 +79,10 @@ source scripts/enable_tab_completion.bash
 ```
 
 说明：argcomplete 只能对“命令本身”做补全；如果你用 `python3 scripts/run_friction_demo.py ...` 这种形式，bash 不会触发补全。
-启用后请使用 wrapper 命令：
+启用后建议使用以下两种方式：
 
 ```bash
+run_friction_demo.py --<Tab>
 fricdemo --<Tab>
 phymodel-sync --<Tab>
 phymodel-validate --<Tab>

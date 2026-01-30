@@ -18,6 +18,9 @@ if ! command -v register-python-argcomplete >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
+# Make `run_friction_demo.py ...` work without typing `./scripts/...`.
+export PATH="${repo_root}/scripts:${PATH}"
+
 # IMPORTANT:
 # Bash completion matches the *exact command word* you type.
 # If you run scripts via `python3 scripts/foo.py ...`, completion will NOT trigger.
@@ -35,4 +38,16 @@ eval "$(register-python-argcomplete phymodel-view)"
 eval "$(register-python-argcomplete phymodel-validate)"
 eval "$(register-python-argcomplete phymodel-sync)"
 
-echo "TAB completion enabled: fricdemo / phymodel-view / phymodel-validate / phymodel-sync"
+# Also register completion for direct script invocations.
+eval "$(register-python-argcomplete "${repo_root}/scripts/run_friction_demo.py")"
+eval "$(register-python-argcomplete "${repo_root}/scripts/view_friction.py")"
+eval "$(register-python-argcomplete "${repo_root}/scripts/validate_mjcf.py")"
+eval "$(register-python-argcomplete "${repo_root}/scripts/sync_params.py")"
+
+# And for PATH-based names (works because we prepended repo_root/scripts to PATH above).
+eval "$(register-python-argcomplete run_friction_demo.py)"
+eval "$(register-python-argcomplete view_friction.py)"
+eval "$(register-python-argcomplete validate_mjcf.py)"
+eval "$(register-python-argcomplete sync_params.py)"
+
+echo "TAB completion enabled: run_friction_demo.py / fricdemo / phymodel-*"
