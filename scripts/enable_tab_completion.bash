@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
-set -euo pipefail
+
+# This file is meant to be SOURCED:
+#   source scripts/enable_tab_completion.bash
+#
+# Do NOT use `set -euo pipefail` here because it would leak shell options into
+# the caller and can cause the terminal to exit unexpectedly.
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo "This script must be sourced (not executed):"
+  echo "  source scripts/enable_tab_completion.bash"
+  exit 1
+fi
+
+__phymodel_saved_opts="$(set +o)"
 
 # Enable TAB completion for repo scripts that use argparse + argcomplete.
 #
@@ -15,7 +28,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if ! command -v register-python-argcomplete >/dev/null 2>&1; then
   echo "register-python-argcomplete not found. Install argcomplete first:"
   echo "  pip install argcomplete"
-  return 1 2>/dev/null || exit 1
+  echo "Or activate your conda env first (e.g. mjwarp_env)."
+  eval "${__phymodel_saved_opts}"
+  return 0
 fi
 
 # Make `run_friction_demo.py ...` work without typing `./scripts/...`.
@@ -51,3 +66,5 @@ eval "$(register-python-argcomplete validate_mjcf.py)"
 eval "$(register-python-argcomplete sync_params.py)"
 
 echo "TAB completion enabled: run_friction_demo.py / fricdemo / phymodel-*"
+
+eval "${__phymodel_saved_opts}"
