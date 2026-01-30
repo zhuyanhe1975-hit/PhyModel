@@ -25,6 +25,8 @@ def main() -> int:
     ap.add_argument("--amp", type=float, default=30.0)
     ap.add_argument("--freq", type=float, default=0.5)
     ap.add_argument("--model", choices=["vc", "lugre"], default="lugre")
+    ap.add_argument("--params", default="params/er15-1400.params.json", help="Central params file (friction, etc.)")
+    ap.add_argument("--timestep", type=float, default=None, help="Override MuJoCo timestep [s] (takes precedence)")
     ap.add_argument("--no-friction", action="store_true")
     args = ap.parse_args()
 
@@ -39,14 +41,38 @@ def main() -> int:
     if j < 0 or j >= nq:
         raise SystemExit(f"--joint out of range: 1..{nq}")
 
+    payload = {}
+    try:
+        from phymodel.params.io import load_params
+
+        payload = load_params(args.params)
+    except FileNotFoundError:
+        print(f"warning: params file not found: {args.params} (using built-in defaults)")
+
+    timestep_override = None
+    if isinstance(payload, dict):
+        tunable = payload.get("tunable")
+        if isinstance(tunable, dict):
+            sim = tunable.get("sim")
+            if isinstance(sim, dict) and sim.get("timestep_override") is not None:
+                timestep_override = float(sim["timestep_override"])
+    if args.timestep is not None:
+        timestep_override = float(args.timestep)
+    if timestep_override is not None:
+        mjm.opt.timestep = timestep_override
+
+    from phymodel.params.friction import friction_params_from_payload
+
     tau_fric_fn = None
     if not args.no_friction:
+        model_params, _ = friction_params_from_payload(payload, args.model)
         if args.model == "vc":
             from phymodel.friction.viscous_coulomb import ViscousCoulombFriction
 
             fric_model = ViscousCoulombFriction(
-                coulomb=[2.0] * nq,
-                viscous=[0.8] * nq,
+                coulomb=model_params.get("coulomb", [2.0] * nq),
+                viscous=model_params.get("viscous", [0.8] * nq),
+                v_eps=float(model_params.get("v_eps", 1e-4)),
             )
 
             def tau_fric_fn(_: float, qd: np.ndarray) -> np.ndarray:
@@ -56,12 +82,14 @@ def main() -> int:
             from phymodel.friction.lugre import LugreFriction
 
             fric_model = LugreFriction(
-                fc=[2.0] * nq,
-                fs=[6.0] * nq,
-                vs=[0.05] * nq,
-                sigma0=[200.0] * nq,
-                sigma1=[2.0] * nq,
-                sigma2=[0.8] * nq,
+                fc=model_params.get("fc", [2.0] * nq),
+                fs=model_params.get("fs", [6.0] * nq),
+                vs=model_params.get("vs", [0.05] * nq),
+                sigma0=model_params.get("sigma0", [200.0] * nq),
+                sigma1=model_params.get("sigma1", [2.0] * nq),
+                sigma2=model_params.get("sigma2", [0.8] * nq),
+                v_eps=float(model_params.get("v_eps", 1e-6)),
+                g_eps=float(model_params.get("g_eps", 1e-9)),
             )
 
             def tau_fric_fn(_: float, qd: np.ndarray) -> np.ndarray:
@@ -90,4 +118,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

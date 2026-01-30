@@ -16,19 +16,35 @@ def main() -> int:
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--mjcf", required=True)
+    ap.add_argument("--params", default=None, help="Optional params file to check sync (sha256).")
     args = ap.parse_args()
 
     from phymodel.mjcf.validator import validate_mjcf
 
     rep = validate_mjcf(args.mjcf)
+    sync_errors = []
+    sync_warnings = []
+    if args.params:
+        from phymodel.params.sync import check_params_sync
+
+        sync = check_params_sync(args.mjcf, args.params)
+        sync_errors = sync.errors
+        sync_warnings = sync.warnings
+
     payload = {
         "ok": rep.ok,
         "errors": rep.errors,
         "warnings": rep.warnings,
         "summary": rep.summary,
+        "sync": {
+            "ok": len(sync_errors) == 0,
+            "errors": sync_errors,
+            "warnings": sync_warnings,
+        }
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
-    return 0 if rep.ok else 2
+    ok = rep.ok and (len(sync_errors) == 0)
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

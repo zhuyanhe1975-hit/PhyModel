@@ -17,6 +17,20 @@
 python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 ```
 
+## 统一参数文件（MJCF + 可调参）
+
+本项目将“机器人物理/动力学参数”集中在一个文件里：`params/er15-1400.params.json`，其中：
+
+- `mjcf_snapshot`：从 `models/er15-1400.mjcf.xml` 自动提取的结构/惯量/关节等快照
+- `tunable`：可调参（当前重点是摩擦；也包含仿真 timestep override）
+
+修改 MJCF 后保持同步：
+
+```bash
+python3 scripts/sync_params.py --mjcf models/er15-1400.mjcf.xml --out params/er15-1400.params.json
+python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml --params params/er15-1400.params.json
+```
+
 ## 摩擦力模型：快速看到效应
 
 无 GUI（导出曲线与数据到 `artifacts/`）：
