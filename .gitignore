@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+MUJOCO_LOG.TXT
+artifacts/
+.DS_Store
+.vscode/
+.idea/
