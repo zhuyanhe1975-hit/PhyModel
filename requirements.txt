@@ -1,3 +1,4 @@
 # Minimal runtime deps for PhyModel
 mujoco
 numpy
+matplotlib

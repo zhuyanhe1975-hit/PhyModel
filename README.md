@@ -17,6 +17,21 @@
 python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 ```
 
+## 摩擦力模型：快速看到效应
+
+无 GUI（导出曲线与数据到 `artifacts/`）：
+
+```bash
+python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre
+python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre --no-friction
+```
+
+有 GUI（MuJoCo viewer，适合直观看差异）：
+
+```bash
+python3 scripts/view_friction.py --mjcf models/er15-1400.mjcf.xml --model lugre
+```
+
 ## 开发环境（本机约定）
 
 本仓库对应的 MuJoCo Python 环境已在 Miniconda 中准备好：`mjwarp_env`。
