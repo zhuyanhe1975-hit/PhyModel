@@ -70,6 +70,14 @@ conda activate mjwarp_env
 python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 ```
 
+## 命令行 Tab 补全（argcomplete）
+
+在当前 shell 会话中启用（需当前 Python 环境已安装 `argcomplete`）：
+
+```bash
+source scripts/enable_tab_completion.bash
+```
+
 ## 下一步（建议）
 
 1) 接触/自碰/相邻碰撞过滤：从“可控无自碰”开始，逐步回归真实。

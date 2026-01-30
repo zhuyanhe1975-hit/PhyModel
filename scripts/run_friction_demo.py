@@ -189,6 +189,12 @@ def main() -> int:
         help="Run both with/without friction and export comparison plots.",
     )
     ap.add_argument("--outdir", default="artifacts/friction_demo")
+    try:
+        import argcomplete  # type: ignore
+
+        argcomplete.autocomplete(ap)
+    except Exception:
+        pass
     args = ap.parse_args()
 
     import mujoco

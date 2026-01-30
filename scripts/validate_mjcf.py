@@ -17,6 +17,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mjcf", required=True)
     ap.add_argument("--params", default=None, help="Optional params file to check sync (sha256).")
+    try:
+        import argcomplete  # type: ignore
+
+        argcomplete.autocomplete(ap)
+    except Exception:
+        pass
     args = ap.parse_args()
 
     from phymodel.mjcf.validator import validate_mjcf

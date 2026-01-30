@@ -33,6 +33,12 @@ def main() -> int:
         help="Lock all other joints (q=0, qd=0) to isolate the selected joint.",
     )
     ap.add_argument("--no-friction", action="store_true")
+    try:
+        import argcomplete  # type: ignore
+
+        argcomplete.autocomplete(ap)
+    except Exception:
+        pass
     args = ap.parse_args()
 
     import mujoco

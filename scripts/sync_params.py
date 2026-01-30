@@ -54,6 +54,12 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--mjcf", default="models/er15-1400.mjcf.xml")
     ap.add_argument("--out", default="params/er15-1400.params.json")
+    try:
+        import argcomplete  # type: ignore
+
+        argcomplete.autocomplete(ap)
+    except Exception:
+        pass
     args = ap.parse_args()
 
     from phymodel.mjcf.extract import extract_mjcf_snapshot, sha256_file
