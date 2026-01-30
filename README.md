@@ -78,6 +78,16 @@ python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 source scripts/enable_tab_completion.bash
 ```
 
+说明：argcomplete 只能对“命令本身”做补全；如果你用 `python3 scripts/run_friction_demo.py ...` 这种形式，bash 不会触发补全。
+启用后请使用 wrapper 命令：
+
+```bash
+fricdemo --<Tab>
+phymodel-sync --<Tab>
+phymodel-validate --<Tab>
+phymodel-view --<Tab>
+```
+
 ## 下一步（建议）
 
 1) 接触/自碰/相邻碰撞过滤：从“可控无自碰”开始，逐步回归真实。

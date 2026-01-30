@@ -18,10 +18,21 @@ if ! command -v register-python-argcomplete >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-eval "$(register-python-argcomplete "${repo_root}/scripts/run_friction_demo.py")"
-eval "$(register-python-argcomplete "${repo_root}/scripts/view_friction.py")"
-eval "$(register-python-argcomplete "${repo_root}/scripts/validate_mjcf.py")"
-eval "$(register-python-argcomplete "${repo_root}/scripts/sync_params.py")"
+# IMPORTANT:
+# Bash completion matches the *exact command word* you type.
+# If you run scripts via `python3 scripts/foo.py ...`, completion will NOT trigger.
+# To make completion reliable, provide stable wrapper commands (shell functions) and register those.
 
-echo "TAB completion enabled for PhyModel scripts."
+fricdemo() { python3 "${repo_root}/scripts/run_friction_demo.py" "$@"; }
+phymodel-view() { python3 "${repo_root}/scripts/view_friction.py" "$@"; }
+phymodel-validate() { python3 "${repo_root}/scripts/validate_mjcf.py" "$@"; }
+phymodel-sync() { python3 "${repo_root}/scripts/sync_params.py" "$@"; }
 
+export -f fricdemo phymodel-view phymodel-validate phymodel-sync
+
+eval "$(register-python-argcomplete fricdemo)"
+eval "$(register-python-argcomplete phymodel-view)"
+eval "$(register-python-argcomplete phymodel-validate)"
+eval "$(register-python-argcomplete phymodel-sync)"
+
+echo "TAB completion enabled: fricdemo / phymodel-view / phymodel-validate / phymodel-sync"
