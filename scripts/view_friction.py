@@ -32,6 +32,12 @@ def main() -> int:
         action="store_true",
         help="Lock all other joints (q=0, qd=0) to isolate the selected joint.",
     )
+    ap.add_argument(
+        "--plot-torque",
+        action="store_true",
+        help="Draw realtime applied torque curve in the viewer overlay.",
+    )
+    ap.add_argument("--plot-window", type=float, default=2.0, help="Torque plot time window [s].")
     ap.add_argument("--no-friction", action="store_true")
     try:
         import argcomplete  # type: ignore
@@ -116,6 +122,30 @@ def main() -> int:
     if args.lock_others:
         lock_idx = [ii for ii in range(nq) if ii != j]
 
+    fig = None
+    rect = None
+    if args.plot_torque:
+        fig = mujoco.MjvFigure()
+        mujoco.mjv_defaultFigure(fig)
+        fig.flg_extend = 0
+        fig.flg_barplot = 0
+        fig.flg_selection = 0
+        fig.title = "Applied torque"
+        fig.xlabel = "t [s]"
+        fig.ylabel = "tau [N*m]"
+        # try set line name
+        try:
+            fig.linename[0] = f"tau_applied[{args.joint}]"
+        except Exception:
+            try:
+                fig.linename[0] = f"tau_applied[{args.joint}]".encode()
+            except Exception:
+                pass
+        fig.linepnt[0] = 0
+        maxpt = int(fig.linedata.shape[1] // 2)
+        tbuf = np.full((maxpt,), np.nan, dtype=float)
+        ybuf = np.full((maxpt,), np.nan, dtype=float)
+
     with mujoco.viewer.launch_passive(mjm, mjd) as v:
         while v.is_running():
             if lock_idx:
@@ -138,6 +168,53 @@ def main() -> int:
                 mjd.qvel[lock_idx] = 0.0
                 mjd.qacc[lock_idx] = 0.0
                 mujoco.mj_forward(mjm, mjd)
+
+            if fig is not None:
+                # update plot buffers
+                now = float(mjd.time)
+                tau_applied = float(mjd.qfrc_applied[j])
+                tbuf[:-1] = tbuf[1:]
+                ybuf[:-1] = ybuf[1:]
+                tbuf[-1] = now
+                ybuf[-1] = tau_applied
+
+                valid = np.isfinite(tbuf) & np.isfinite(ybuf)
+                tv = tbuf[valid]
+                yv = ybuf[valid]
+                n = int(tv.size)
+                if n > 0:
+                    # time window
+                    tmax = float(tv[-1])
+                    tw = max(float(args.plot_window), 1e-3)
+                    tmin = max(float(tv[0]), tmax - tw)
+                    mask = tv >= tmin
+                    tvw = tv[mask]
+                    yvw = yv[mask]
+                    if tvw.size > 0:
+                        # pack into linedata (x,y interleaved)
+                        fig.linepnt[0] = int(tvw.size)
+                        fig.linedata[0, : 2 * tvw.size : 2] = tvw
+                        fig.linedata[0, 1 : 2 * tvw.size : 2] = yvw
+                        # set ranges with margins
+                        ymin = float(np.min(yvw))
+                        ymax = float(np.max(yvw))
+                        if abs(ymax - ymin) < 1e-9:
+                            ymin -= 1.0
+                            ymax += 1.0
+                        margin = 0.1 * (ymax - ymin)
+                        fig.range[0, 0] = float(tmin)
+                        fig.range[0, 1] = float(tmax)
+                        fig.range[1, 0] = float(ymin - margin)
+                        fig.range[1, 1] = float(ymax + margin)
+
+                        vp = v.viewport
+                        rect = mujoco.MjrRect(
+                            left=0,
+                            bottom=0,
+                            width=max(1, int(vp.width * 0.55)),
+                            height=max(1, int(vp.height * 0.25)),
+                        )
+                        v.set_figures((rect, fig))
 
             v.sync()
 

@@ -58,7 +58,7 @@ python3 scripts/run_friction_demo.py --model lugre --compare --excitation vel_sw
 有 GUI（MuJoCo viewer，适合直观看差异）：
 
 ```bash
-python3 scripts/view_friction.py --mjcf models/er15-1400.mjcf.xml --model lugre
+python3 scripts/view_friction.py --mjcf models/er15-1400.mjcf.xml --model lugre --plot-torque
 ```
 
 ## 开发环境（本机约定）
