@@ -27,6 +27,11 @@ def main() -> int:
     ap.add_argument("--model", choices=["vc", "lugre"], default="lugre")
     ap.add_argument("--params", default="params/er15-1400.params.json", help="Central params file (friction, etc.)")
     ap.add_argument("--timestep", type=float, default=None, help="Override MuJoCo timestep [s] (takes precedence)")
+    ap.add_argument(
+        "--lock-others",
+        action="store_true",
+        help="Lock all other joints (q=0, qd=0) to isolate the selected joint.",
+    )
     ap.add_argument("--no-friction", action="store_true")
     args = ap.parse_args()
 
@@ -101,8 +106,18 @@ def main() -> int:
         tau[j] = float(args.amp) * np.sin(2.0 * np.pi * float(args.freq) * t)
         return tau
 
+    lock_idx = []
+    if args.lock_others:
+        lock_idx = [ii for ii in range(nq) if ii != j]
+
     with mujoco.viewer.launch_passive(mjm, mjd) as v:
         while v.is_running():
+            if lock_idx:
+                mjd.qpos[lock_idx] = 0.0
+                mjd.qvel[lock_idx] = 0.0
+                mjd.qacc[lock_idx] = 0.0
+                mujoco.mj_forward(mjm, mjd)
+
             cmd = tau_cmd(float(mjd.time))
             fric = np.zeros(nq, dtype=float)
             if tau_fric_fn is not None:
@@ -111,6 +126,13 @@ def main() -> int:
             mjd.qfrc_applied[:] = 0.0
             mjd.qfrc_applied[:] = cmd + fric
             mujoco.mj_step(mjm, mjd)
+
+            if lock_idx:
+                mjd.qpos[lock_idx] = 0.0
+                mjd.qvel[lock_idx] = 0.0
+                mjd.qacc[lock_idx] = 0.0
+                mujoco.mj_forward(mjm, mjd)
+
             v.sync()
 
     return 0

@@ -177,6 +177,11 @@ def main() -> int:
     ap.add_argument("--model", choices=["vc", "lugre"], default="lugre")
     ap.add_argument("--params", default="params/er15-1400.params.json", help="Central params file (friction, etc.)")
     ap.add_argument("--timestep", type=float, default=None, help="Override MuJoCo timestep [s] (takes precedence)")
+    ap.add_argument(
+        "--lock-others",
+        action="store_true",
+        help="Lock all other joints (q=0, qd=0) to isolate the selected joint.",
+    )
     ap.add_argument("--no-friction", action="store_true")
     ap.add_argument(
         "--compare",
@@ -323,6 +328,12 @@ def main() -> int:
     outdir = Path(args.outdir)
     _mkdir(outdir)
 
+    lock_idx = []
+    lock_val = []
+    if args.lock_others:
+        lock_idx = [ii for ii in range(nq) if ii != j]
+        lock_val = [0.0 for _ in lock_idx]
+
     if args.compare:
         tau_fric_fn, fric_meta = build_tau_fric_fn(args.model)
 
@@ -332,6 +343,8 @@ def main() -> int:
             duration=float(args.duration),
             tau_cmd_fn=tau_cmd_fn,
             tau_fric_fn=tau_fric_fn,
+            lock_qpos_idx=lock_idx,
+            lock_qpos_val=lock_val,
         )
         log_nofric = run_torque_demo(
             mjm=mjm,
@@ -339,6 +352,8 @@ def main() -> int:
             duration=float(args.duration),
             tau_cmd_fn=tau_cmd_fn,
             tau_fric_fn=None,
+            lock_qpos_idx=lock_idx,
+            lock_qpos_val=lock_val,
         )
 
         tag = f"{args.excitation}_{args.model}_joint{args.joint}"
@@ -357,6 +372,7 @@ def main() -> int:
                             "joint": args.joint,
                             "mjcf": str(mjcf_path.as_posix()),
                             "timestep": float(mjm.opt.timestep),
+                            "lock_others": bool(args.lock_others),
                             "friction": fric_meta,
                         }
                     )
@@ -443,6 +459,8 @@ def main() -> int:
         duration=float(args.duration),
         tau_cmd_fn=tau_cmd_fn,
         tau_fric_fn=tau_fric_fn_use,
+        lock_qpos_idx=lock_idx,
+        lock_qpos_val=lock_val,
     )
 
     tag = f"{args.excitation}_{args.model}_joint{args.joint}_{'nofric' if args.no_friction else 'fric'}"
@@ -460,6 +478,7 @@ def main() -> int:
                         "joint": args.joint,
                         "mjcf": str(mjcf_path.as_posix()),
                         "timestep": float(mjm.opt.timestep),
+                        "lock_others": bool(args.lock_others),
                         "friction": fric_meta,
                     }
                 )

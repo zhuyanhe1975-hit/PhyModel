@@ -48,6 +48,9 @@ python3 scripts/run_friction_demo.py --model lugre --compare --excitation ramp_t
 # 2) 零速附近往复：三角速度参考（过零时滞回最明显）
 python3 scripts/run_friction_demo.py --model lugre --compare --excitation tri_vel --vmax 0.3 --freq 0.5
 
+# 额外：隔离单关节（锁定 2~6 关节为 0 位），只观察关节 1 的摩擦效应
+python3 scripts/run_friction_demo.py --model lugre --compare --excitation tri_vel --joint 1 --lock-others
+
 # 3) 速度扫描（类 Stribeck）：速度参考分段扫到 +vmax 再到 -vmax
 python3 scripts/run_friction_demo.py --model lugre --compare --excitation vel_sweep --vmax 0.6 --duration 6
 ```
