@@ -39,6 +39,19 @@ python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml --params param
 python3 scripts/run_friction_demo.py --mjcf models/er15-1400.mjcf.xml --model lugre --compare
 ```
 
+一个脚本覆盖多种“最能体现摩擦”的情形（通过 `--excitation` 切换）：
+
+```bash
+# 1) 起动摩擦/静摩擦（breakaway）：力矩双向缓慢爬升
+python3 scripts/run_friction_demo.py --model lugre --compare --excitation ramp_torque --amp 20 --period 4 --hold 0.5
+
+# 2) 零速附近往复：三角速度参考（过零时滞回最明显）
+python3 scripts/run_friction_demo.py --model lugre --compare --excitation tri_vel --vmax 0.3 --freq 0.5
+
+# 3) 速度扫描（类 Stribeck）：速度参考分段扫到 +vmax 再到 -vmax
+python3 scripts/run_friction_demo.py --model lugre --compare --excitation vel_sweep --vmax 0.6 --duration 6
+```
+
 有 GUI（MuJoCo viewer，适合直观看差异）：
 
 ```bash
