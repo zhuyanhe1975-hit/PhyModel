@@ -132,7 +132,8 @@ def main() -> int:
         fig.flg_selection = 0
         fig.title = "Applied torque"
         fig.xlabel = "t [s]"
-        fig.ylabel = "tau [N*m]"
+        if hasattr(fig, "ylabel"):
+            fig.ylabel = "tau [N*m]"
         # try set line name
         try:
             fig.linename[0] = f"tau_applied[{args.joint}]"
