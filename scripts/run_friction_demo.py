@@ -163,7 +163,7 @@ def main() -> int:
     ap.add_argument("--joint", type=int, default=1, help="1-based joint index for excitation")
     ap.add_argument(
         "--excitation",
-        choices=["sin_torque", "ramp_torque", "tri_vel", "vel_sweep"],
+        choices=["sin_torque", "ramp_torque", "tri_vel", "vel_sweep", "fric_curve"],
         default="sin_torque",
         help="Excitation type for friction visualization.",
     )
@@ -174,9 +174,24 @@ def main() -> int:
     ap.add_argument("--vmax", type=float, default=0.6, help="Max velocity for tri_vel/vel_sweep [rad/s]")
     ap.add_argument("--kp", type=float, default=80.0, help="Velocity-loop gain for tri_vel/vel_sweep [N*m per rad/s]")
     ap.add_argument("--tau_max", type=float, default=120.0, help="Torque clamp for velocity-loop modes [N*m]")
+    ap.add_argument("--nvel", type=int, default=21, help="Number of velocity samples for fric_curve")
+    ap.add_argument("--dwell", type=float, default=0.25, help="Dwell time per velocity for fric_curve [s]")
+    ap.add_argument("--settle", type=float, default=0.15, help="Settle time per velocity for fric_curve [s]")
+    ap.add_argument("--vmin", type=float, default=0.02, help="Min nonzero speed for fric_curve [rad/s]")
+    ap.add_argument(
+        "--fric-curve-mode",
+        choices=["analytic", "simulate"],
+        default="analytic",
+        help="How to generate fric_curve: analytic mapping (recommended) or simulate with velocity control.",
+    )
     ap.add_argument("--model", choices=["vc", "lugre"], default="lugre")
     ap.add_argument("--params", default="params/er15-1400.params.json", help="Central params file (friction, etc.)")
     ap.add_argument("--timestep", type=float, default=None, help="Override MuJoCo timestep [s] (takes precedence)")
+    ap.add_argument(
+        "--zero-gravity",
+        action="store_true",
+        help="Set model gravity to 0 (recommended for isolated friction curve tests).",
+    )
     ap.add_argument(
         "--lock-others",
         action="store_true",
@@ -230,6 +245,11 @@ def main() -> int:
         timestep_override = float(args.timestep)
     if timestep_override is not None:
         mjm.opt.timestep = timestep_override
+    if args.zero_gravity:
+        try:
+            mjm.opt.gravity[:] = 0.0
+        except Exception:
+            pass
 
     def build_tau_fric_fn(model_name: str):
         model_params, _ = friction_params_from_payload(payload, model_name)
@@ -322,7 +342,7 @@ def main() -> int:
         if args.excitation == "ramp_torque":
             tau[j] = _ramp_bidir_tau(float(t), amp=float(args.amp), period=float(args.period), hold=float(args.hold))
             return tau
-        if args.excitation in ("tri_vel", "vel_sweep"):
+        if args.excitation in ("tri_vel", "vel_sweep", "fric_curve"):
             v_ref = v_ref_at(float(t))
             err = v_ref - float(qd[j])
             u_cmd = float(args.kp) * err
@@ -451,6 +471,224 @@ def main() -> int:
         if args.excitation in ("tri_vel", "vel_sweep"):
             print(f"wrote: {outdir / f'{tag}_vref.png'}")
         print(f"wrote: {outdir / f'{tag}_taufric_vs_qd.png'}")
+        return 0
+
+    if args.excitation == "fric_curve":
+        if args.no_friction:
+            raise SystemExit("--excitation fric_curve requires friction enabled (omit --no-friction).")
+        tau_fric_fn_use, fric_meta = build_tau_fric_fn(args.model)
+
+        # Analytic curve directly from friction model definition (best matches the reference plot).
+        if args.fric_curve_mode == "analytic":
+            model_params, _ = friction_params_from_payload(payload, args.model)
+            vmax = max(float(args.vmax), 1e-6)
+            v = np.linspace(-vmax, vmax, 801, dtype=float)
+            sign = np.sign(v)
+
+            if args.model == "vc":
+                coulomb = np.asarray(model_params.get("coulomb", [2.0] * nq), dtype=float)[j]
+                viscous = np.asarray(model_params.get("viscous", [0.8] * nq), dtype=float)[j]
+                v_eps = float(model_params.get("v_eps", 1e-4))
+                sign_v = np.where(np.abs(v) < v_eps, 0.0, sign)
+                tau_comp = coulomb * sign_v + viscous * v
+                fs = float(abs(coulomb))
+                fc = float(abs(coulomb))
+            else:
+                fc = float(np.asarray(model_params.get("fc", [2.0] * nq), dtype=float)[j])
+                fs = float(np.asarray(model_params.get("fs", [6.0] * nq), dtype=float)[j])
+                vs = float(np.asarray(model_params.get("vs", [0.05] * nq), dtype=float)[j])
+                sigma0 = float(np.asarray(model_params.get("sigma0", [200.0] * nq), dtype=float)[j])
+                sigma2 = float(np.asarray(model_params.get("sigma2", [0.8] * nq), dtype=float)[j])
+                v_eps = float(model_params.get("v_eps", 1e-6))
+
+                vv = v / max(abs(vs), v_eps)
+                g = fc + (fs - fc) * np.exp(-(vv * vv))
+                # steady-state LuGre: z = g(v)*sign(v), tau = sigma0*z + sigma2*v
+                tau_comp = sigma0 * g * np.where(np.abs(v) < v_eps, 0.0, sign) + sigma2 * v
+
+                fs = abs(sigma0 * fs)
+                fc = abs(sigma0 * fc)
+
+            tag = f"fric_curve_{args.model}_joint{args.joint}"
+            out_npz = outdir / f"{tag}.npz"
+            np.savez(
+                out_npz,
+                v=v,
+                tau_comp=tau_comp,
+                Fs=np.array([fs], dtype=float),
+                Fc=np.array([fc], dtype=float),
+                meta=np.array(
+                    [
+                        str(
+                            {
+                                "excitation": "fric_curve",
+                                "mode": "analytic",
+                                "joint": args.joint,
+                                "mjcf": str(mjcf_path.as_posix()),
+                                "timestep": float(mjm.opt.timestep),
+                                "friction": fric_meta,
+                            }
+                        )
+                    ],
+                    dtype=object,
+                ),
+            )
+
+            import matplotlib.pyplot as plt
+
+            fig, ax = plt.subplots(1, 1, figsize=(7.2, 5.4))
+            ax.plot(v, tau_comp, linewidth=2.0)
+            ax.axhline(0.0, color="k", linewidth=0.8, alpha=0.4)
+            ax.axvline(0.0, color="k", linewidth=0.8, alpha=0.4)
+            # mark Fs and Fc levels
+            ax.axhline(+fs, color="C1", linestyle="--", linewidth=1.0, alpha=0.8, label="Fs")
+            ax.axhline(-fs, color="C1", linestyle="--", linewidth=1.0, alpha=0.8)
+            ax.axhline(+fc, color="C2", linestyle="--", linewidth=1.0, alpha=0.8, label="Fc")
+            ax.axhline(-fc, color="C2", linestyle="--", linewidth=1.0, alpha=0.8)
+            ax.set_xlabel("velocity v [rad/s]")
+            ax.set_ylabel("friction compensation torque [N*m]")
+            ax.set_title(f"Friction curve (joint {args.joint}, {args.model}, analytic)")
+            ax.grid(True, alpha=0.3)
+            ax.legend(loc="best")
+            fig.tight_layout()
+            out_png = outdir / f"{tag}.png"
+            fig.savefig(out_png, dpi=150)
+            plt.close(fig)
+
+            print(f"wrote: {out_npz}")
+            print(f"wrote: {out_png}")
+            return 0
+
+        def tau_cmd_const_v(v_ref: float):
+            def _fn(_t: float, _q: np.ndarray, qd: np.ndarray) -> np.ndarray:
+                tau = np.zeros(nq, dtype=float)
+                err = float(v_ref) - float(qd[j])
+                u_cmd = float(args.kp) * err
+                u_cmd = float(np.clip(u_cmd, -float(args.tau_max), float(args.tau_max)))
+                tau[j] = u_cmd
+                return tau
+
+            return _fn
+
+        def _estimate_breakaway(sign: float) -> float | None:
+            # ramp from 0 to sign*amp over duration, detect first motion
+            amp = float(args.amp)
+            dur = max(1.0, float(args.period) / 2.0)
+
+            def _tau_cmd(t: float, _q: np.ndarray, _qd: np.ndarray) -> np.ndarray:
+                tau = np.zeros(nq, dtype=float)
+                u = np.clip(float(t) / dur, 0.0, 1.0)
+                tau[j] = float(sign) * amp * u
+                return tau
+
+            log = run_torque_demo(
+                mjm=mjm,
+                mjd=mujoco.MjData(mjm),
+                duration=dur,
+                tau_cmd_fn=_tau_cmd,
+                tau_fric_fn=tau_fric_fn_use,
+                lock_qpos_idx=lock_idx,
+                lock_qpos_val=lock_val,
+            )
+            qd_thresh = 1e-3
+            if sign > 0:
+                hit = np.where(log.qd[:, j] > qd_thresh)[0]
+            else:
+                hit = np.where(log.qd[:, j] < -qd_thresh)[0]
+            if hit.size == 0:
+                return None
+            idx = int(hit[0])
+            return float(log.tau_cmd[idx, j])
+
+        # sample velocities (symmetric, exclude 0)
+        nvel = max(5, int(args.nvel))
+        vmin = max(1e-6, float(args.vmin))
+        vmax = max(vmin, float(args.vmax))
+        vpos = np.linspace(vmin, vmax, nvel, dtype=float)
+        vlist = np.concatenate([-vpos[::-1], vpos], axis=0)
+
+        v_meas = np.zeros_like(vlist)
+        tau_resist = np.zeros_like(vlist)  # resistance torque (+ for +v)
+
+        for i, vref in enumerate(vlist):
+            seg_dur = float(args.settle) + float(args.dwell)
+            log = run_torque_demo(
+                mjm=mjm,
+                mjd=mujoco.MjData(mjm),
+                duration=seg_dur,
+                tau_cmd_fn=tau_cmd_const_v(float(vref)),
+                tau_fric_fn=tau_fric_fn_use,
+                lock_qpos_idx=lock_idx,
+                lock_qpos_val=lock_val,
+            )
+            dt = float(mjm.opt.timestep)
+            tail = max(1, int(float(args.dwell) / max(dt, 1e-9)))
+            qd_tail = log.qd[-tail:, j]
+            fr_tail = log.tau_fric[-tail:, j]
+            v_meas[i] = float(np.median(qd_tail))
+            # plot required compensation, not the applied opposing torque
+            tau_resist[i] = float(np.median(-fr_tail))
+
+        # breakaway points (static friction)
+        tau_bk_p = _estimate_breakaway(+1.0)
+        tau_bk_n = _estimate_breakaway(-1.0)
+
+        tag = f"fric_curve_{args.model}_joint{args.joint}"
+        out_npz = outdir / f"{tag}.npz"
+        np.savez(
+            out_npz,
+            v_ref=vlist,
+            v_meas=v_meas,
+            tau_resist=tau_resist,
+            breakaway_pos=np.array([np.nan if tau_bk_p is None else tau_bk_p], dtype=float),
+            breakaway_neg=np.array([np.nan if tau_bk_n is None else tau_bk_n], dtype=float),
+            meta=np.array(
+                [
+                    str(
+                        {
+                            "excitation": "fric_curve",
+                            "joint": args.joint,
+                            "mjcf": str(mjcf_path.as_posix()),
+                            "timestep": float(mjm.opt.timestep),
+                            "lock_others": bool(args.lock_others),
+                            "zero_gravity": bool(args.zero_gravity),
+                            "friction": fric_meta,
+                        }
+                    )
+                ],
+                dtype=object,
+            ),
+        )
+
+        # plot curve
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(1, 1, figsize=(7.2, 5.4))
+        ax.plot(v_meas, tau_resist, linewidth=1.6)
+        ax.scatter(v_meas, tau_resist, s=14)
+        if tau_bk_p is not None:
+            ax.scatter([0.0], [tau_bk_p], s=60, marker="o", label="breakaway +")
+        if tau_bk_n is not None:
+            ax.scatter([0.0], [tau_bk_n], s=60, marker="o", label="breakaway -")
+        ax.axhline(0.0, color="k", linewidth=0.8, alpha=0.4)
+        ax.axvline(0.0, color="k", linewidth=0.8, alpha=0.4)
+        ax.set_xlabel("velocity v [rad/s]")
+        ax.set_ylabel("friction compensation torque [N*m]")
+        ax.set_title(f"Friction curve (joint {args.joint}, {args.model})")
+        ax.grid(True, alpha=0.3)
+        if tau_bk_p is not None or tau_bk_n is not None:
+            ax.legend(loc="best")
+        fig.tight_layout()
+        out_png = outdir / f"{tag}.png"
+        fig.savefig(out_png, dpi=150)
+        plt.close(fig)
+
+        print(f"wrote: {out_npz}")
+        print(f"wrote: {out_png}")
+        if tau_bk_p is not None:
+            print(f"breakaway_tau_est + [N*m]: {tau_bk_p:.6f}")
+        if tau_bk_n is not None:
+            print(f"breakaway_tau_est - [N*m]: {tau_bk_n:.6f}")
         return 0
 
     if args.no_friction:

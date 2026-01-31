@@ -53,6 +53,9 @@ python3 scripts/run_friction_demo.py --model lugre --compare --excitation tri_ve
 
 # 3) 速度扫描（类 Stribeck）：速度参考分段扫到 +vmax 再到 -vmax
 python3 scripts/run_friction_demo.py --model lugre --compare --excitation vel_sweep --vmax 0.6 --duration 6
+
+# 4) 直接画“摩擦力-速度”特性曲线（最像教科书图）：解析曲线（不受机器人动力学/重力影响）
+python3 scripts/run_friction_demo.py --model lugre --excitation fric_curve --joint 1 --vmax 1.0
 ```
 
 有 GUI（MuJoCo viewer，适合直观看差异）：
