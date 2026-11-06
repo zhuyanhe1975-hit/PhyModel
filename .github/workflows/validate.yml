@@ -1,0 +1,74 @@
+name: Validate ER15 model
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: MJCF and FK
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MPLBACKEND: Agg
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install validation dependencies
+        run: python -m pip install "mujoco==3.17.0" numpy matplotlib
+
+      - name: Record environment
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ci
+          {
+            echo "python: $(python -V)"
+            python -c "import mujoco, numpy, matplotlib; print('mujoco', mujoco.__version__); print('numpy', numpy.__version__); print('matplotlib', matplotlib.__version__)"
+          } | tee artifacts/ci/environment.txt
+
+      - name: Validate MJCF and forward kinematics
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/ci
+          status=0
+          python scripts/validate_mjcf.py \
+            --mjcf models/er15-1400.mjcf.xml \
+            --params params/er15-1400.params.json \
+            2> artifacts/ci/validate_mjcf.stderr \
+            | tee artifacts/ci/validate_mjcf.json || status=$?
+          python scripts/check_fk.py \
+            --mjcf models/er15-1400.mjcf.xml \
+            --body link_6 \
+            --out artifacts/ci/fk_report.json \
+            --plot artifacts/ci/fk_tcp.png \
+            2> artifacts/ci/check_fk.stderr \
+            | tee artifacts/ci/check_fk.json || status=$?
+          exit "$status"
+
+      - name: Write job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ci
+          python scripts/ci_summary.py \
+            --mjcf artifacts/ci/validate_mjcf.json \
+            --fk artifacts/ci/fk_report.json \
+            --out artifacts/ci/summary.md \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: er15-validation
+          path: artifacts/ci/
+          if-no-files-found: warn
+          retention-days: 14

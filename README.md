@@ -10,12 +10,26 @@
 - `phymodel/mjcf/validator.py`：MJCF 校验与摘要输出
 - `phymodel/kinematics/`：最小 FK 校验（确认 TCP/site 刷新正确）
 - `scripts/validate_mjcf.py`：命令行校验入口
+- `scripts/check_fk.py`：无界面 MuJoCo 加载与少量正解（FK）校验
 
 ## 快速开始
 
 ```bash
 python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml
 ```
+
+## 在 GitHub Actions 上查看校验
+
+不需要本机 GPU。推送到 `main`、打开 pull request，或在 Actions 页面手动运行 **Validate ER15 model** 时，GitHub 托管的 `ubuntu-latest` 会执行文档中的 MJCF 校验，并额外做一次无界面 FK（不跑长仿真）：
+
+```bash
+python3 scripts/validate_mjcf.py --mjcf models/er15-1400.mjcf.xml --params params/er15-1400.params.json
+python3 scripts/check_fk.py --mjcf models/er15-1400.mjcf.xml --body link_6 --out artifacts/ci/fk_report.json --plot artifacts/ci/fk_tcp.png
+```
+
+- 运行列表：<https://github.com/zhuyanhe1975-hit/PhyModel/actions/workflows/validate.yml>
+- 打开某一次运行的 **Summary** 页，可以看到网格/关节数量，以及 `link_6` 在几个姿态下的 TCP 位置。
+- 同一页底部的 **Artifacts** 里下载 `er15-validation`。压缩包中有 `validate_mjcf.json`、`fk_report.json`、`check_fk.json`、`fk_tcp.png`、`summary.md`、`environment.txt`，以及两份 stderr 日志。
 
 ## 统一参数文件（MJCF + 可调参）
 
